@@ -33,6 +33,10 @@ struct Vector3
 	float y;
 	float z;
 
+	Vector3() = default;
+
+	Vector3(float v) : x(v), y(v), z(v) {}
+
 	Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
 
 	Vector3& operator *=(float s)
@@ -75,7 +79,7 @@ struct Vector3
 
 	RGB ToRGB() const
 	{
-		return RGB{ static_cast<uint8_t>(x * 256), static_cast<uint8_t>(y * 256), static_cast<uint8_t>(z * 256) };
+		return RGB{ static_cast<uint8_t>(std::min(255.f, x * 255)), static_cast<uint8_t>(std::min(255.f, y * 255)), static_cast<uint8_t>(std::min(255.f, z * 255)) };
 	}
 
 	std::string ToString() const
@@ -158,11 +162,20 @@ struct Ray
 {
 	Vector3 origin;
 	Vector3 directionN;
+	float maxT = std::numeric_limits<float>::max();
 
 	Vector3 operator()(float t) const
 	{
 		return origin + directionN * t;
 	}
+};
+
+struct HitInfo 
+{
+	bool hit = false;
+	float t = std::numeric_limits<float>::max();
+	Vector3 point;
+	Vector3 normal;
 };
 
 struct Triangle
@@ -182,15 +195,18 @@ struct Triangle
 		return Cross(b - a, c - a).Magnitude() * 0.5f;
 	}
 
-	bool Intersect(const Ray& ray) const
+	HitInfo Intersect(const Ray& ray) const
 	{
+		HitInfo info;
+		info.hit = false;
+
 		float dirDotNorm = Dot(ray.directionN, normal);
-		if (dirDotNorm >= 0.f)
-			return false;
+		//if (dirDotNorm >= 0.f)
+		//	return info;
 
 		float t = Dot(a - ray.origin, normal) / dirDotNorm;
-		if (t < 0.f)
-			return false;
+		if (t < 0.f || t > ray.maxT)
+			return info;
 
 		Vector3 p = ray(t);
 
@@ -201,14 +217,19 @@ struct Triangle
 		Vector3 C1 = p - b;
 		Vector3 C2 = p - c;
 
-		if (Dot(normal, Cross(edge0, C0)) < 0.f) 
-			return false;
-		if (Dot(normal, Cross(edge1, C1)) < 0.f) 
-			return false;
-		if (Dot(normal, Cross(edge2, C2)) < 0.f) 
-			return false;
+		if (Dot(normal, Cross(edge0, C0)) < 0.f)
+			return info;
+		if (Dot(normal, Cross(edge1, C1)) < 0.f)
+			return info;
+		if (Dot(normal, Cross(edge2, C2)) < 0.f)
+			return info;
 
-		return true;
+		info.hit = true;
+		info.t = t;
+		info.point = p;
+		info.normal = normal;
+
+		return info;
 	}
 };
 

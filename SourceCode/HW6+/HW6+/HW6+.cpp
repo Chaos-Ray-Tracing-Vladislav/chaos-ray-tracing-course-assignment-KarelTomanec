@@ -13,7 +13,7 @@ void RenderImageSequence(Scene& scene)
 {
 	Scene::Settings sceneSettings = scene.GetSettings();
 	RGB backgroundColor = sceneSettings.backgroundColor;
-	RGB triangleColor{ 255, 255, 255 };
+	Vector3 triangleColor{ 1.f };
 
 	const uint32_t imageWidth = sceneSettings.imageSettings.width;
 	const uint32_t imageHeight = sceneSettings.imageSettings.height;
@@ -44,8 +44,25 @@ void RenderImageSequence(Scene& scene)
 
 			Ray ray{ origin, direction };
 			RGB color = backgroundColor;
-			if (scene.Intersect(ray))
-				color = triangleColor;
+
+			HitInfo hitInfo = scene.ClosestHit(ray);
+			if (hitInfo.hit)
+			{
+				Vector3 L{ 0.f };
+				for (const auto& light : scene.GetLights())
+				{
+					Vector3 dirToLight = Normalize(light.position - hitInfo.point);
+					float distanceToLight = (light.position - hitInfo.point).Magnitude();
+					Ray shadowRay{ hitInfo.point + hitInfo.normal * 0.001f, dirToLight, distanceToLight };
+					if (!scene.AnyHit(shadowRay))
+					{
+						float attenuation = 1.0f / (distanceToLight * distanceToLight);
+						L = L + triangleColor * std::max(0.f, Dot(hitInfo.normal, dirToLight)) * attenuation * light.intensity;
+					}
+				}
+				L = L * 0.1f; // Exposure
+				color = L.ToRGB();
+			}
 
 			writer << color.ToString() << "\t";
 		}
@@ -60,7 +77,6 @@ int main()
 		Scene{ "scene1.crtscene" },
 		Scene{ "scene2.crtscene" },
 		Scene{ "scene3.crtscene" },
-		Scene{ "scene4.crtscene" },
 	};
 	for(auto& scene : scenes)
 		RenderImageSequence(scene);

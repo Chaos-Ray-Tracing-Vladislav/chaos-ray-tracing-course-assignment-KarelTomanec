@@ -63,6 +63,11 @@ std::vector<uint32_t> loadIndices(const rapidjson::Value::ConstArray& arr)
 	return result;
 }
 
+struct Light
+{
+	float intensity;
+	Vector3 position;
+};
 
 class Scene
 {
@@ -80,6 +85,7 @@ public:
 		ImageSettings imageSettings;
 	};
 
+
 	Scene(const std::string& fileName)
 	{
 		parseSceneFile(fileName);
@@ -87,15 +93,30 @@ public:
 
 	Scene(Camera camera, std::vector<Triangle> triangles) : camera(std::move(camera)), triangles(std::move(triangles)) {}
 
-	bool Intersect(const Ray& ray) const
+	HitInfo ClosestHit(const Ray& ray) const
+	{
+		HitInfo hitInfo;
+		for (const auto& triangle : triangles)
+		{
+			HitInfo currHitInfo = triangle.Intersect(ray);
+			if (currHitInfo.hit && currHitInfo.t < hitInfo.t)
+				hitInfo = std::move(currHitInfo);
+		}
+		return hitInfo;
+	}
+
+	bool AnyHit(const Ray& ray) const
 	{
 		return std::any_of(triangles.begin(), triangles.end(), [&ray](const Triangle& triangle)
 			{
-				return triangle.Intersect(ray);
+				HitInfo hitInfo = triangle.Intersect(ray);
+				return hitInfo.hit;
 			});
 	}
 
 	Settings GetSettings() const { return settings; }
+
+	const std::vector<Light>& GetLights() const { return lights; }
 
 	Camera camera;
 protected:
@@ -107,10 +128,13 @@ protected:
 	inline static const std::string kImageHeightStr{ "height" };
 	inline static const std::string kCameraStr{ "camera" };
 	inline static const std::string kMatrixStr{ "matrix" };
+	inline static const std::string kLightsStr{ "lights" };
+	inline static const std::string kIntensityStr{ "intensity" };
 	inline static const std::string kPositionStr{ "position" };
 	inline static const std::string kObjectsStr{ "objects" };
 	inline static const std::string kVerticesStr{ "vertices" };
 	inline static const std::string kTrianglesStr{ "triangles" };
+
 
 	void parseSceneFile(const std::string& fileName)
 	{
@@ -150,8 +174,27 @@ protected:
 			camera.transform = rotation * translation;
 		}
 
+		const Value& lightsValue = doc.FindMember(kLightsStr.c_str())->value;
+		if (!lightsValue.IsNull() && lightsValue.IsArray())
+		{
+			for (Value::ConstValueIterator it = lightsValue.Begin(); it != lightsValue.End(); ++it)
+			{
+				Light light;
+				const Value& intensityValue = it->FindMember(kIntensityStr.c_str())->value;
+				assert(!intensityValue.IsNull() && intensityValue.IsFloat());
+				light.intensity = intensityValue.GetFloat();
+
+				const Value& positionVal = it->FindMember(kPositionStr.c_str())->value;
+				assert(!positionVal.IsNull() && positionVal.IsArray());
+				light.position = loadVector(positionVal.GetArray());
+
+				lights.push_back(light);
+			}
+		}
+
 		const Value& objectsValue = doc.FindMember(kObjectsStr.c_str())->value;
-		if(!objectsValue.IsNull() && objectsValue.IsArray()) {
+		if(!objectsValue.IsNull() && objectsValue.IsArray()) 
+		{
 			for(Value::ConstValueIterator it = objectsValue.Begin(); it != objectsValue.End(); ++it)
 			{
 				const Value& verticesValue = it->FindMember(kVerticesStr.c_str())->value;
@@ -173,6 +216,7 @@ protected:
 				}
 			}
 		}
+
 	}
 
 	rapidjson::Document getJsonDocument(const std::string& fileName)
@@ -198,5 +242,6 @@ protected:
 	}
 
 	std::vector<Triangle> triangles;
+	std::vector<Light> lights;
 	Settings settings;
 };
