@@ -332,4 +332,3 @@ Matrix4 operator*(const Matrix4& A, const Matrix4& B)
 	}
 	return result;
 }
-
