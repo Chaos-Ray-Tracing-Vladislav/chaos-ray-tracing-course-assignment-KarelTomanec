@@ -1,6 +1,0 @@
-﻿  HW2.cpp
-C:\dev\projects\Chaos\SourceCode\HW2\HW2\HW2.cpp(73,11): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
-C:\dev\projects\Chaos\SourceCode\HW2\HW2\HW2.cpp(104,12): warning C4244: 'return': conversion from 'double' to 'float', possible loss of data
-C:\dev\projects\Chaos\SourceCode\HW2\HW2\HW2.cpp(136,22): warning C4244: 'initializing': conversion from 'float' to 'uint32_t', possible loss of data
-C:\dev\projects\Chaos\SourceCode\HW2\HW2\HW2.cpp(137,22): warning C4244: 'initializing': conversion from 'float' to 'uint32_t', possible loss of data
-  HW2.vcxproj -> C:\dev\projects\Chaos\SourceCode\HW2\x64\Debug\HW2.exe
