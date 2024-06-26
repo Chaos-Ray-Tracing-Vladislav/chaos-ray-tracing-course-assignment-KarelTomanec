@@ -69,6 +69,26 @@ struct Light
 	Vector3 position;
 };
 
+struct Material
+{
+	enum Type
+	{
+		DIFFUSE,
+		REFLECTIVE
+	};
+
+	Type type;
+	Vector3 albedo;
+	bool smoothShading;
+};
+
+class Mesh
+{
+public:
+	std::vector<Triangle> triangles;
+	uint32_t materialIndex;
+};
+
 class Scene
 {
 public:
@@ -91,34 +111,45 @@ public:
 		parseSceneFile(fileName);
 	}
 
-	Scene(Camera camera, std::vector<Triangle> triangles) : camera(std::move(camera)), triangles(std::move(triangles)) {}
-
 	HitInfo ClosestHit(const Ray& ray) const
 	{
 		HitInfo hitInfo;
-		for (const auto& triangle : triangles)
+		for (uint32_t meshIndex = 0; meshIndex < meshes.size(); ++meshIndex)
 		{
-			HitInfo currHitInfo = triangle.Intersect(ray);
-			if (currHitInfo.hit && currHitInfo.t < hitInfo.t)
-				hitInfo = std::move(currHitInfo);
+			const auto& mesh = meshes[meshIndex];
+			for (uint32_t triangleIndex = 0; triangleIndex < mesh.triangles.size(); ++triangleIndex)
+			{
+				const auto& triangle = mesh.triangles[triangleIndex];
+				HitInfo currHitInfo = triangle.Intersect(ray);
+				if (currHitInfo.hit && currHitInfo.t < hitInfo.t)
+				{
+					currHitInfo.meshIndex = meshIndex;
+					currHitInfo.triangleIndex = triangleIndex;
+					hitInfo = std::move(currHitInfo);
+				}
+			}
 		}
 		return hitInfo;
 	}
 
 	bool AnyHit(const Ray& ray) const
 	{
-		return std::any_of(triangles.begin(), triangles.end(), [&ray](const Triangle& triangle)
-			{
-				HitInfo hitInfo = triangle.Intersect(ray);
-				return hitInfo.hit;
-			});
+		for (const auto& mesh : meshes)
+		{
+			return std::any_of(mesh.triangles.begin(), mesh.triangles.end(), [&ray](const Triangle& triangle)
+				{
+					HitInfo hitInfo = triangle.Intersect(ray);
+					return hitInfo.hit;
+				});
+		}
 	}
 
-	Settings GetSettings() const { return settings; }
-
-	const std::vector<Light>& GetLights() const { return lights; }
-
 	Camera camera;
+	std::vector<Mesh> meshes;
+	std::vector<Material> materials;
+	std::vector<Light> lights;
+	Settings settings;
+
 protected:
 
 	inline static const std::string kSceneSettingsStr{ "settings" };
@@ -134,8 +165,14 @@ protected:
 	inline static const std::string kObjectsStr{ "objects" };
 	inline static const std::string kVerticesStr{ "vertices" };
 	inline static const std::string kTrianglesStr{ "triangles" };
-
-
+	inline static const std::string kMaterialsStr{ "materials" };
+	inline static const std::string kTypeStr{ "type" };
+	inline static const std::string kTypeDiffuseStr{ "diffuse" };
+	inline static const std::string kTypeReflectiveStr{ "reflective" };
+	inline static const std::string kAlbedoStr{ "albedo" };
+	inline static const std::string kSmoothShadingStr{ "smooth_shading" };
+	inline static const std::string kMaterialIndexStr{ "material_index" };
+	
 	void parseSceneFile(const std::string& fileName)
 	{
 		using namespace rapidjson;
@@ -181,8 +218,8 @@ protected:
 			{
 				Light light;
 				const Value& intensityValue = it->FindMember(kIntensityStr.c_str())->value;
-				assert(!intensityValue.IsNull() && intensityValue.IsFloat());
-				light.intensity = intensityValue.GetFloat();
+				assert(!intensityValue.IsNull() && intensityValue.IsInt());
+				light.intensity = static_cast<float>(intensityValue.GetInt());
 
 				const Value& positionVal = it->FindMember(kPositionStr.c_str())->value;
 				assert(!positionVal.IsNull() && positionVal.IsArray());
@@ -192,11 +229,37 @@ protected:
 			}
 		}
 
+		const Value& materialsValue = doc.FindMember(kMaterialsStr.c_str())->value;
+		if (!materialsValue.IsNull() && materialsValue.IsArray())
+		{
+			for (Value::ConstValueIterator it = materialsValue.Begin(); it != materialsValue.End(); ++it)
+			{
+				Material material;
+
+				const Value& typeValue = it->FindMember(kTypeStr.c_str())->value;
+				assert(!typeValue.IsNull() && typeValue.IsString());
+				const auto typeStr = typeValue.GetString();
+				material.type = std::string(typeStr) == kTypeDiffuseStr ? Material::Type::DIFFUSE : Material::Type::REFLECTIVE;
+
+				const Value& albedoVal = it->FindMember(kAlbedoStr.c_str())->value;
+				assert(!albedoVal.IsNull() && albedoVal.IsArray());
+				material.albedo = loadVector(albedoVal.GetArray());
+
+				const Value& smoothShadingVal = it->FindMember(kSmoothShadingStr.c_str())->value;
+				assert(!smoothShadingVal.IsNull() && smoothShadingVal.IsBool());
+				material.smoothShading = smoothShadingVal.GetBool();
+
+				materials.push_back(material);
+			}
+		}
+
 		const Value& objectsValue = doc.FindMember(kObjectsStr.c_str())->value;
 		if(!objectsValue.IsNull() && objectsValue.IsArray()) 
 		{
 			for(Value::ConstValueIterator it = objectsValue.Begin(); it != objectsValue.End(); ++it)
 			{
+				Mesh mesh;
+
 				const Value& verticesValue = it->FindMember(kVerticesStr.c_str())->value;
 				assert(!verticesValue.IsNull() && verticesValue.IsArray());
 				std::vector<Vector3> vertices = loadVertices(verticesValue.GetArray());
@@ -205,15 +268,51 @@ protected:
 				assert(!trianglesValue.IsNull() && trianglesValue.IsArray());
 				std::vector<uint32_t> indices = loadIndices(trianglesValue.GetArray());
 
-				triangles.reserve(indices.size() / 3);
+				// Compute vertex normals
+				std::vector<Vector3> vertexNormals(vertices.size(), { 0.0f, 0.0f, 0.0f });
 				for (uint32_t i = 0; i < indices.size(); i += 3)
 				{
-					triangles.emplace_back(
-						vertices[indices[i]],
-						vertices[indices[i + 1]],
-						vertices[indices[i + 2]]
+					const auto& i0 = indices[i];
+					const auto& i1 = indices[i + 1];
+					const auto& i2 = indices[i + 2];
+					const auto& v0 = vertices[i0];
+					const auto& v1 = vertices[i1];
+					const auto& v2 = vertices[i2];
+					Vector3 faceNormal = Normalize(Cross(v1 - v0, v2 - v0));
+
+					vertexNormals[i0] += faceNormal;
+					vertexNormals[i1] += faceNormal;
+					vertexNormals[i2] += faceNormal;
+				}
+				// Normalize
+				for (uint32_t i = 0; i < vertexNormals.size(); ++i)
+					vertexNormals[i] = Normalize(vertexNormals[i]);
+
+
+				mesh.triangles.reserve(indices.size() / 3);
+				for (uint32_t i = 0; i < indices.size(); i += 3)
+				{
+					const auto& i0 = indices[i];
+					const auto& i1 = indices[i + 1];
+					const auto& i2 = indices[i + 2];
+					const auto& v0 = vertices[i0];
+					const auto& v1 = vertices[i1];
+					const auto& v2 = vertices[i2];
+					const auto& n0 = vertexNormals[i0];
+					const auto& n1 = vertexNormals[i1];
+					const auto& n2 = vertexNormals[i2];
+					mesh.triangles.emplace_back(
+						Vertex{v0, n0},
+						Vertex{v1, n1},
+						Vertex{v2, n2}
 					);
 				}
+
+				const Value& materialIndexValue = it->FindMember(kMaterialIndexStr.c_str())->value;
+				assert(!materialIndexValue.IsNull() && materialIndexValue.IsInt());
+				mesh.materialIndex = materialIndexValue.GetInt();
+
+				meshes.push_back(mesh);
 			}
 		}
 
@@ -240,8 +339,4 @@ protected:
 
 		return doc;	// RVO
 	}
-
-	std::vector<Triangle> triangles;
-	std::vector<Light> lights;
-	Settings settings;
 };

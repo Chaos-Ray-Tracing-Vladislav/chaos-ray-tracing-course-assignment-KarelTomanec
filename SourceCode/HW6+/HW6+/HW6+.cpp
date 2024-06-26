@@ -11,9 +11,8 @@ static constexpr uint32_t maxColorComponent = 255;
 
 void RenderImageSequence(Scene& scene)
 {
-	Scene::Settings sceneSettings = scene.GetSettings();
+	Scene::Settings sceneSettings = scene.settings;
 	RGB backgroundColor = sceneSettings.backgroundColor;
-	Vector3 triangleColor{ 1.f };
 
 	const uint32_t imageWidth = sceneSettings.imageSettings.width;
 	const uint32_t imageHeight = sceneSettings.imageSettings.height;
@@ -49,7 +48,7 @@ void RenderImageSequence(Scene& scene)
 			if (hitInfo.hit)
 			{
 				Vector3 L{ 0.f };
-				for (const auto& light : scene.GetLights())
+				for (const auto& light : scene.lights)
 				{
 					Vector3 dirToLight = Normalize(light.position - hitInfo.point);
 					float distanceToLight = (light.position - hitInfo.point).Magnitude();
@@ -57,7 +56,16 @@ void RenderImageSequence(Scene& scene)
 					if (!scene.AnyHit(shadowRay))
 					{
 						float attenuation = 1.0f / (distanceToLight * distanceToLight);
-						L = L + triangleColor * std::max(0.f, Dot(hitInfo.normal, dirToLight)) * attenuation * light.intensity;
+						const auto& mesh = scene.meshes[hitInfo.meshIndex];
+						const auto& material = scene.materials[mesh.materialIndex];
+						Vector3 normal = hitInfo.normal;
+						if (material.smoothShading)
+						{
+							const auto& triangle = mesh.triangles[hitInfo.triangleIndex];
+							normal = triangle.GetNormal(hitInfo.u, hitInfo.v);
+						}
+
+						L = L + material.albedo * std::max(0.f, Dot(normal, dirToLight)) * attenuation * light.intensity;
 					}
 				}
 				L = L * 0.1f; // Exposure
@@ -73,10 +81,12 @@ void RenderImageSequence(Scene& scene)
 int main()
 {
 	std::vector<Scene> scenes{
-		Scene{ "scene0.crtscene" },
-		Scene{ "scene1.crtscene" },
-		Scene{ "scene2.crtscene" },
+		//Scene{ "scene0.crtscene" },
+		//Scene{ "scene1.crtscene" },
+		//Scene{ "scene2.crtscene" },
 		Scene{ "scene3.crtscene" },
+		//Scene{ "scene4.crtscene" },
+		//Scene{ "scene5.crtscene" },
 	};
 	for(auto& scene : scenes)
 		RenderImageSequence(scene);

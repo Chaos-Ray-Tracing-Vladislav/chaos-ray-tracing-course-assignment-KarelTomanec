@@ -114,6 +114,11 @@ inline Vector3 Normalize(const Vector3& v)
 	return v / v.Magnitude();
 }
 
+inline float Magnitude(const Vector3& v)
+{
+	return v.Magnitude();
+}
+
 inline Vector3 Cross(const Vector3& a, const Vector3& b)
 {
 	return {
@@ -176,35 +181,58 @@ struct HitInfo
 	float t = std::numeric_limits<float>::max();
 	Vector3 point;
 	Vector3 normal;
+	float u;
+	float v;
+	uint32_t meshIndex;
+	uint32_t triangleIndex;
+};
+
+struct Vertex
+{
+	Vector3 position;
+	Vector3 normal;
 };
 
 struct Triangle
 {
-	Vector3 a;
-	Vector3 b;
-	Vector3 c;
+	Vertex v0;
+	Vertex v1;
+	Vertex v2;
 
-	Vector3 normal;
+	Vector3 faceNormal;
 
-	Triangle(Vector3 a, Vector3 b, Vector3 c)
-		: a(a), b(b), c(c), normal(Normalize(Cross(b - a, c - a)))
-	{}
+	Triangle(Vertex a, Vertex b, Vertex c)
+	{
+		v0 = a;
+		v1 = b;
+		v2 = c;
+		this->faceNormal = Normalize(Cross(v1.position - v0.position, v2.position - v0.position));
+	}
 
 	float Area() const
 	{
-		return Cross(b - a, c - a).Magnitude() * 0.5f;
+		return Cross(v1.position - v0.position, v2.position - v0.position).Magnitude() * 0.5f;
+	}
+
+	Vector3 GetNormal(float u, float v) const
+	{
+		float w = 1.f - u - v;
+		return Normalize(v0.normal * u + v1.normal * v + v2.normal * w);
 	}
 
 	HitInfo Intersect(const Ray& ray) const
 	{
 		HitInfo info;
-		info.hit = false;
 
-		float dirDotNorm = Dot(ray.directionN, normal);
+		const Vector3& a = v0.position;
+		const Vector3& b = v1.position;
+		const Vector3& c = v2.position;
+
+		float dirDotNorm = Dot(ray.directionN, faceNormal);
 		//if (dirDotNorm >= 0.f)
 		//	return info;
 
-		float t = Dot(a - ray.origin, normal) / dirDotNorm;
+		float t = Dot(a - ray.origin, faceNormal) / dirDotNorm;
 		if (t < 0.f || t > ray.maxT)
 			return info;
 
@@ -217,17 +245,25 @@ struct Triangle
 		Vector3 C1 = p - b;
 		Vector3 C2 = p - c;
 
-		if (Dot(normal, Cross(edge0, C0)) < 0.f)
+		if (Dot(faceNormal, Cross(edge0, C0)) < 0.f)
 			return info;
-		if (Dot(normal, Cross(edge1, C1)) < 0.f)
+		if (Dot(faceNormal, Cross(edge1, C1)) < 0.f)
 			return info;
-		if (Dot(normal, Cross(edge2, C2)) < 0.f)
+		if (Dot(faceNormal, Cross(edge2, C2)) < 0.f)
 			return info;
+
+		// Calculate the barycentric coordinates
+		float areaABC = Magnitude(Cross(b - a, c - a)); // Area of the whole triangle
+		float areaPBC = Magnitude(Cross(b - p, c - p)); // Area of the triangle PBC
+		float areaPCA = Magnitude(Cross(c - p, a - p)); // Area of the triangle PCA
+
+		info.u = areaPBC / areaABC;
+		info.v = areaPCA / areaABC;
 
 		info.hit = true;
 		info.t = t;
 		info.point = p;
-		info.normal = normal;
+		info.normal = faceNormal;
 
 		return info;
 	}
