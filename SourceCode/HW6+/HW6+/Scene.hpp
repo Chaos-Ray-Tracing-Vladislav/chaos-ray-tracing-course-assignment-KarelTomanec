@@ -11,8 +11,6 @@
 #include <algorithm>
 #include <iostream>
 
-
-
 // Helper functions
 Vector3 loadVector(const rapidjson::Value::ConstArray& arr)
 {
