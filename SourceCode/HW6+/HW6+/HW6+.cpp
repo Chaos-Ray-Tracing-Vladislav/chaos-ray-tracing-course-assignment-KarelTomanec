@@ -52,7 +52,7 @@ void RenderImageSequence(Scene& scene)
 				{
 					Vector3 dirToLight = Normalize(light.position - hitInfo.point);
 					float distanceToLight = (light.position - hitInfo.point).Magnitude();
-					Ray shadowRay{ hitInfo.point + hitInfo.normal * 0.001f, dirToLight, distanceToLight };
+					Ray shadowRay{ hitInfo.point + hitInfo.normal * 0.01f, dirToLight, distanceToLight };
 					if (!scene.AnyHit(shadowRay))
 					{
 						float attenuation = 1.0f / (distanceToLight * distanceToLight);
@@ -83,7 +83,7 @@ int main()
 	std::vector<Scene> scenes{
 		//Scene{ "scene0.crtscene" },
 		//Scene{ "scene1.crtscene" },
-		//Scene{ "scene2.crtscene" },
+		Scene{ "scene2.crtscene" },
 		Scene{ "scene3.crtscene" },
 		//Scene{ "scene4.crtscene" },
 		//Scene{ "scene5.crtscene" },
