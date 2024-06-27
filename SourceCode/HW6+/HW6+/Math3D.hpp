@@ -4,6 +4,7 @@
 #include <numbers>
 #include <string>
 #include <cmath>
+#include <algorithm>
 
 constexpr float DegToRad(float degrees)
 {
@@ -47,6 +48,14 @@ struct Vector3
 		return (*this);
 	}
 
+	Vector3& operator *=(const Vector3& v)
+	{
+		x *= v.x;
+		y *= v.y;
+		z *= v.z;
+		return (*this);
+	}
+
 	Vector3& operator /=(float s)
 	{
 		s = 1.f / s;
@@ -79,7 +88,7 @@ struct Vector3
 
 	RGB ToRGB() const
 	{
-		return RGB{ static_cast<uint8_t>(std::min(255.f, x * 255)), static_cast<uint8_t>(std::min(255.f, y * 255)), static_cast<uint8_t>(std::min(255.f, z * 255)) };
+		return RGB{ static_cast<uint8_t>(std::clamp(x, 0.f, 1.f) * 255), static_cast<uint8_t>(std::clamp(y, 0.f, 1.f) * 255), static_cast<uint8_t>(std::clamp(z, 0.f, 1.f) * 255) };
 	}
 
 	std::string ToString() const
@@ -101,6 +110,11 @@ inline Vector3 operator -(const Vector3& a, const Vector3& b)
 inline Vector3 operator *(const Vector3& v, float s)
 {
 	return { v.x * s, v.y * s, v.z * s };
+}
+
+inline Vector3 operator *(const Vector3& v, const Vector3& u)
+{
+	return { v.x * u.x, v.y * u.y, v.z * u.z };
 }
 
 inline Vector3 operator /(const Vector3& v, float s)
@@ -161,6 +175,12 @@ inline Point3 operator -(const Point3& a, const Vector3& b)
 inline Vector3 operator -(const Point3& a, const Point3& b)
 {
 	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+Vector3 OffsetRayOrigin(const Vector3& origin, const Vector3& normal)
+{
+	constexpr float rayOffset = 0.01f;
+	return origin + normal * rayOffset;
 }
 
 struct Ray

@@ -99,7 +99,7 @@ public:
 	struct Settings
 	{
 		std::string sceneName;
-		RGB backgroundColor;
+		Vector3 backgroundColor;
 		ImageSettings imageSettings;
 	};
 
@@ -182,7 +182,7 @@ protected:
 		{
 			const Value& bgColorVal = settingsVal.FindMember(kBackgroundColorStr.c_str())->value;
 			assert(!bgColorVal.IsNull() && bgColorVal.IsArray());
-			settings.backgroundColor = loadVector(bgColorVal.GetArray()).ToRGB();
+			settings.backgroundColor = loadVector(bgColorVal.GetArray());
 
 			const Value& imageSettingsVal = settingsVal.FindMember(kImageSettingsStr.c_str())->value;
 			if (!imageSettingsVal.IsNull() && imageSettingsVal.IsObject())
@@ -217,7 +217,7 @@ protected:
 				Light light;
 				const Value& intensityValue = it->FindMember(kIntensityStr.c_str())->value;
 				assert(!intensityValue.IsNull() && intensityValue.IsInt());
-				light.intensity = static_cast<float>(intensityValue.GetInt());
+				light.intensity = static_cast<float>(intensityValue.GetInt()) * 0.1f; // lights seems to be too bright
 
 				const Value& positionVal = it->FindMember(kPositionStr.c_str())->value;
 				assert(!positionVal.IsNull() && positionVal.IsArray());

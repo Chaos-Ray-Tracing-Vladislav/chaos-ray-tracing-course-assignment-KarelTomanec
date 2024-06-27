@@ -6,6 +6,7 @@
 #include <thread>
 #include <mutex>
 #include <barrier>
+#include <utility>
 
 class Image
 {
@@ -119,38 +120,49 @@ protected:
         Vector3 direction = Normalize(forward + right * x + up * y);
 
         Ray ray{ origin, direction };
+        const uint32_t maxTraceDepth = 2;
 
-        HitInfo hitInfo = scene.ClosestHit(ray);
-        if (hitInfo.hit)
+        Vector3 throughput{ 1.f };
+        Vector3 L{ 0.f };
+        for (uint32_t depth = 0; depth < maxTraceDepth; ++depth)
         {
-            Vector3 L{ 0.f };
-            for (const auto& light : scene.lights)
+            HitInfo hitInfo = scene.ClosestHit(ray);
+            if (hitInfo.hit)
             {
-                Vector3 dirToLight = Normalize(light.position - hitInfo.point);
-                float distanceToLight = (light.position - hitInfo.point).Magnitude();
-                Ray shadowRay{ hitInfo.point + hitInfo.normal * 0.01f, dirToLight, distanceToLight };
-                if (!scene.AnyHit(shadowRay))
+                const auto& mesh = scene.meshes[hitInfo.meshIndex];
+                const auto& material = scene.materials[mesh.materialIndex];
+                Vector3 normal = hitInfo.normal;
+                if (material.smoothShading)
                 {
-                    float attenuation = 1.0f / (distanceToLight * distanceToLight);
-                    const auto& mesh = scene.meshes[hitInfo.meshIndex];
-                    const auto& material = scene.materials[mesh.materialIndex];
-                    Vector3 normal = hitInfo.normal;
-                    if (material.smoothShading)
-                    {
-                        const auto& triangle = mesh.triangles[hitInfo.triangleIndex];
-                        normal = triangle.GetNormal(hitInfo.u, hitInfo.v);
-                    }
-
-                    L = L + material.albedo * std::max(0.f, Dot(normal, dirToLight)) * attenuation * light.intensity;
+                    const auto& triangle = mesh.triangles[hitInfo.triangleIndex];
+                    normal = triangle.GetNormal(hitInfo.u, hitInfo.v);
                 }
+
+                for (const auto& light : scene.lights)
+                {
+                    Vector3 offsetOrigin = OffsetRayOrigin(hitInfo.point, hitInfo.normal);
+                    Vector3 dirToLight = Normalize(light.position - offsetOrigin);
+                    float distanceToLight = (light.position - offsetOrigin).Magnitude();
+                    Ray shadowRay{ offsetOrigin, dirToLight, distanceToLight};
+                    if (!scene.AnyHit(shadowRay))
+                    {
+                        float attenuation = 1.0f / (distanceToLight * distanceToLight);
+                        L += throughput * material.albedo * std::max(0.f, Dot(normal, dirToLight)) * attenuation * light.intensity;
+                        throughput *= material.albedo;
+                    }
+                }
+                if (material.type == Material::Type::DIFFUSE)
+                    break;
+                ray.origin = OffsetRayOrigin(hitInfo.point, hitInfo.normal);
+                ray.directionN = Normalize(ray.directionN - normal * 2.f * Dot(normal, ray.directionN));
             }
-            L = L * 0.1f; // Exposure
-            return L.ToRGB();
+            else
+            {
+                L += throughput * scene.settings.backgroundColor;
+                break;
+            }
         }
-        else
-        {
-            return scene.settings.backgroundColor;
-        }
+        return L.ToRGB();
     }
 
     static constexpr uint32_t maxColorComponent = 255;
