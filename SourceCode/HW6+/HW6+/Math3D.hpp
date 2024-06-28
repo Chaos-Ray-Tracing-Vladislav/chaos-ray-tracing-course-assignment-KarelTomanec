@@ -4,6 +4,7 @@
 #include <numbers>
 #include <string>
 #include <cmath>
+#include <algorithm>
 
 constexpr float DegToRad(float degrees)
 {
@@ -33,6 +34,10 @@ struct Vector3
 	float y;
 	float z;
 
+	Vector3() = default;
+
+	Vector3(float v) : x(v), y(v), z(v) {}
+
 	Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
 
 	Vector3& operator *=(float s)
@@ -40,6 +45,14 @@ struct Vector3
 		x *= s;
 		y *= s;
 		z *= s;
+		return (*this);
+	}
+
+	Vector3& operator *=(const Vector3& v)
+	{
+		x *= v.x;
+		y *= v.y;
+		z *= v.z;
 		return (*this);
 	}
 
@@ -75,7 +88,7 @@ struct Vector3
 
 	RGB ToRGB() const
 	{
-		return RGB{ static_cast<uint8_t>(x * 256), static_cast<uint8_t>(y * 256), static_cast<uint8_t>(z * 256) };
+		return RGB{ static_cast<uint8_t>(std::clamp(x, 0.f, 1.f) * 255), static_cast<uint8_t>(std::clamp(y, 0.f, 1.f) * 255), static_cast<uint8_t>(std::clamp(z, 0.f, 1.f) * 255) };
 	}
 
 	std::string ToString() const
@@ -99,6 +112,11 @@ inline Vector3 operator *(const Vector3& v, float s)
 	return { v.x * s, v.y * s, v.z * s };
 }
 
+inline Vector3 operator *(const Vector3& v, const Vector3& u)
+{
+	return { v.x * u.x, v.y * u.y, v.z * u.z };
+}
+
 inline Vector3 operator /(const Vector3& v, float s)
 {
 	s = 1.f / s;
@@ -108,6 +126,11 @@ inline Vector3 operator /(const Vector3& v, float s)
 inline Vector3 Normalize(const Vector3& v)
 {
 	return v / v.Magnitude();
+}
+
+inline float Magnitude(const Vector3& v)
+{
+	return v.Magnitude();
 }
 
 inline Vector3 Cross(const Vector3& a, const Vector3& b)
@@ -154,10 +177,17 @@ inline Vector3 operator -(const Point3& a, const Point3& b)
 	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
+Vector3 OffsetRayOrigin(const Vector3& origin, const Vector3& normal)
+{
+	constexpr float rayOffset = 0.01f;
+	return origin + normal * rayOffset;
+}
+
 struct Ray
 {
 	Vector3 origin;
 	Vector3 directionN;
+	float maxT = std::numeric_limits<float>::max();
 
 	Vector3 operator()(float t) const
 	{
@@ -165,32 +195,66 @@ struct Ray
 	}
 };
 
+struct HitInfo 
+{
+	bool hit = false;
+	float t = std::numeric_limits<float>::max();
+	Vector3 point;
+	Vector3 normal;
+	float u;
+	float v;
+	uint32_t meshIndex;
+	uint32_t triangleIndex;
+};
+
+struct Vertex
+{
+	Vector3 position;
+	Vector3 normal;
+};
+
 struct Triangle
 {
-	Vector3 a;
-	Vector3 b;
-	Vector3 c;
+	Vertex v0;
+	Vertex v1;
+	Vertex v2;
 
-	Vector3 normal;
+	Vector3 faceNormal;
 
-	Triangle(Vector3 a, Vector3 b, Vector3 c)
-		: a(a), b(b), c(c), normal(Normalize(Cross(b - a, c - a)))
-	{}
+	Triangle(Vertex a, Vertex b, Vertex c)
+	{
+		v0 = a;
+		v1 = b;
+		v2 = c;
+		this->faceNormal = Normalize(Cross(v1.position - v0.position, v2.position - v0.position));
+	}
 
 	float Area() const
 	{
-		return Cross(b - a, c - a).Magnitude() * 0.5f;
+		return Cross(v1.position - v0.position, v2.position - v0.position).Magnitude() * 0.5f;
 	}
 
-	bool Intersect(const Ray& ray) const
+	Vector3 GetNormal(float u, float v) const
 	{
-		float dirDotNorm = Dot(ray.directionN, normal);
-		if (dirDotNorm >= 0.f)
-			return false;
+		float w = 1.f - u - v;
+		return Normalize(v0.normal * u + v1.normal * v + v2.normal * w);
+	}
 
-		float t = Dot(a - ray.origin, normal) / dirDotNorm;
-		if (t < 0.f)
-			return false;
+	HitInfo Intersect(const Ray& ray) const
+	{
+		HitInfo info;
+
+		const Vector3& a = v0.position;
+		const Vector3& b = v1.position;
+		const Vector3& c = v2.position;
+
+		float dirDotNorm = Dot(ray.directionN, faceNormal);
+		//if (dirDotNorm >= 0.f)
+		//	return info;
+
+		float t = Dot(a - ray.origin, faceNormal) / dirDotNorm;
+		if (t < 0.f || t > ray.maxT)
+			return info;
 
 		Vector3 p = ray(t);
 
@@ -201,14 +265,27 @@ struct Triangle
 		Vector3 C1 = p - b;
 		Vector3 C2 = p - c;
 
-		if (Dot(normal, Cross(edge0, C0)) < 0.f) 
-			return false;
-		if (Dot(normal, Cross(edge1, C1)) < 0.f) 
-			return false;
-		if (Dot(normal, Cross(edge2, C2)) < 0.f) 
-			return false;
+		if (Dot(faceNormal, Cross(edge0, C0)) < 0.f)
+			return info;
+		if (Dot(faceNormal, Cross(edge1, C1)) < 0.f)
+			return info;
+		if (Dot(faceNormal, Cross(edge2, C2)) < 0.f)
+			return info;
 
-		return true;
+		// Calculate the barycentric coordinates
+		float areaABC = Magnitude(Cross(b - a, c - a)); // Area of the whole triangle
+		float areaPBC = Magnitude(Cross(b - p, c - p)); // Area of the triangle PBC
+		float areaPCA = Magnitude(Cross(c - p, a - p)); // Area of the triangle PCA
+
+		info.u = areaPBC / areaABC;
+		info.v = areaPCA / areaABC;
+
+		info.hit = true;
+		info.t = t;
+		info.point = p;
+		info.normal = faceNormal;
+
+		return info;
 	}
 };
 
@@ -332,4 +409,3 @@ Matrix4 operator*(const Matrix4& A, const Matrix4& B)
 	}
 	return result;
 }
-
