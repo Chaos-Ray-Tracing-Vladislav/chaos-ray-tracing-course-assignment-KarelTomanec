@@ -40,6 +40,11 @@ struct Vector3
 
 	Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
 
+	Vector3 operator -() const
+	{
+		return Vector3(-x, -y, -z);
+	}
+
 	Vector3& operator *=(float s)
 	{
 		x *= s;
@@ -179,7 +184,7 @@ inline Vector3 operator -(const Point3& a, const Point3& b)
 
 Vector3 OffsetRayOrigin(const Vector3& origin, const Vector3& normal)
 {
-	constexpr float rayOffset = 0.01f;
+	constexpr float rayOffset = 0.001f;
 	return origin + normal * rayOffset;
 }
 
