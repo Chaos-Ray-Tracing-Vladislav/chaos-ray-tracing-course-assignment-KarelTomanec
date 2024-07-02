@@ -223,7 +223,7 @@ protected:
 			assert(!positionVal.IsNull() && positionVal.IsArray());
 			Matrix4 translation = MakeTranslation(loadVector(positionVal.GetArray()));
 
-			camera.transform = rotation * translation;
+			camera.transform =  translation * rotation;
 		}
 
 		const Value& lightsValue = doc.FindMember(kLightsStr.c_str())->value;

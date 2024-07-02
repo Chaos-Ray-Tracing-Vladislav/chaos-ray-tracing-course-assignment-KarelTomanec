@@ -11,7 +11,7 @@ int main()
 		//Scene{ "scene5.crtscene" },
 		//Scene{ "scene6.crtscene" },
 		//Scene{ "scene7.crtscene" },
-		//Scene{ "scene8.crtscene" },
+		Scene{ "scene8.crtscene" },
 	};
 
 	for (auto& scene : scenes)
