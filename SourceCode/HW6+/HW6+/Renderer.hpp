@@ -126,7 +126,7 @@ protected:
             }
 
             Vector3 offsetOrigin = OffsetRayOrigin(hitInfo.point, hitInfo.normal);
-            if (material.type == Material::Type::DIFFUSE)
+            if (material.type == Material::Type::DIFFUSE || material.type == Material::Type::CONSTANT)
             {
                 for (const auto& light : scene.lights)
                 {
@@ -181,7 +181,7 @@ protected:
                     Ray reflectionRay{ offsetOriginReflection,  reflectionDir };
                     Vector3 reflectionL = TraceRay(reflectionRay, depth + 1);
 
-                    float fresnel = 0.5f * (1.f + std::pow(Dot(ray.directionN, normal), 5));
+                    float fresnel = 0.5f * std::pow(1.f + Dot(ray.directionN, normal), 5);
 
                     L += fresnel * reflectionL + (1.f - fresnel) * refractionL;
 
@@ -215,7 +215,7 @@ protected:
         Vector3 L = TraceRay(ray);
         return L.ToRGB();
     }
-    static constexpr uint32_t maxDepth = 4;
+    static constexpr uint32_t maxDepth = 10;
     static constexpr uint32_t maxColorComponent = 255;
     Scene& scene;
 };
