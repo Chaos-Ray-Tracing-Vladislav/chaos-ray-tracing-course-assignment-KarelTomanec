@@ -126,7 +126,7 @@ protected:
             }
 
             Vector3 offsetOrigin = OffsetRayOrigin(hitInfo.point, hitInfo.normal);
-            //if (material.type == Material::Type::DIFFUSE)
+            if (material.type == Material::Type::DIFFUSE)
             {
                 for (const auto& light : scene.lights)
                 {
@@ -166,15 +166,25 @@ protected:
                     // Total internal reflection case
                     Vector3 reflectionDir = Normalize(ray.directionN - normal * 2.f * Dot(normal, ray.directionN));
                     Ray reflectionRay{ offsetOrigin,  reflectionDir };
-                    L += material.albedo * TraceRay(reflectionRay, depth + 1);
+                    L += TraceRay(reflectionRay, depth + 1);
                 }
                 else
                 {
                     float cosThetaT = std::sqrt(1.f - sin2ThetaT);
                     Vector3 wt = -wi / eta + (cosThetaI / eta - cosThetaT) * normal;
-                    offsetOrigin = OffsetRayOrigin(hitInfo.point, flipOrientation ? hitInfo.normal : -hitInfo.normal);
-                    Ray refractionRay{ offsetOrigin, wt };
-                    L += TraceRay(refractionRay, depth + 1);
+                    Vector3 offsetOriginRefraction = OffsetRayOrigin(hitInfo.point, flipOrientation ? hitInfo.normal : -hitInfo.normal);
+                    Ray refractionRay{ offsetOriginRefraction, wt };
+                    Vector3 refractionL = TraceRay(refractionRay, depth + 1);
+
+                    Vector3 reflectionDir = Normalize(ray.directionN - normal * 2.f * Dot(normal, ray.directionN));
+                    Vector3 offsetOriginReflection = OffsetRayOrigin(hitInfo.point, flipOrientation ? -hitInfo.normal : hitInfo.normal);
+                    Ray reflectionRay{ offsetOriginReflection,  reflectionDir };
+                    Vector3 reflectionL = TraceRay(reflectionRay, depth + 1);
+
+                    float fresnel = 0.5f * (1.f + std::pow(Dot(ray.directionN, normal), 5));
+
+                    L += fresnel * reflectionL + (1.f - fresnel) * refractionL;
+
                 }
             }
         }
