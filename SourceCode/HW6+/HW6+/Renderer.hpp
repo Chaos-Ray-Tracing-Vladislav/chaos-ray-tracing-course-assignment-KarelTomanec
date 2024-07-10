@@ -107,6 +107,95 @@ protected:
         }
     }
 
+    Vector3 TraceRay(const Ray& ray, uint32_t depth = 0)
+    {
+        Vector3 L{ 0.f };
+        if (depth > maxDepth)
+            return L;
+
+        HitInfo hitInfo = scene.ClosestHit(ray);
+        if (hitInfo.hit)
+        {
+            const auto& mesh = scene.meshes[hitInfo.meshIndex];
+            const auto& material = scene.materials[mesh.materialIndex];
+            Vector3 normal = hitInfo.normal;
+            if (material.smoothShading)
+            {
+                const auto& triangle = mesh.triangles[hitInfo.triangleIndex];
+                normal = triangle.GetNormal(hitInfo.u, hitInfo.v);
+            }
+
+            Vector3 offsetOrigin = OffsetRayOrigin(hitInfo.point, hitInfo.normal);
+            if (material.type == Material::Type::DIFFUSE || material.type == Material::Type::CONSTANT)
+            {
+                for (const auto& light : scene.lights)
+                {
+                    Vector3 dirToLight = Normalize(light.position - offsetOrigin);
+                    float distanceToLight = (light.position - offsetOrigin).Magnitude();
+                    Ray shadowRay{ offsetOrigin, dirToLight, distanceToLight};
+                    if (!scene.AnyHit(shadowRay))
+                    {
+                        float attenuation = 1.0f / (distanceToLight * distanceToLight);
+                        L += material.albedo * std::max(0.f, Dot(normal, dirToLight)) * attenuation * light.intensity;
+                    }
+                }
+            }
+            if (material.type == Material::Type::REFLECTIVE)
+            {
+                Vector3 reflectionDir = Normalize(ray.directionN - normal * 2.f * Dot(normal, ray.directionN));
+                Ray reflectionRay{ offsetOrigin,  reflectionDir };
+                L += material.albedo * TraceRay(reflectionRay, depth + 1);
+            }
+            else if (material.type == Material::Type::REFRACTIVE)
+            {
+                float eta = material.ior;
+                Vector3 wi = -ray.directionN;
+                float cosThetaI = Dot(normal, wi);
+                bool flipOrientation = cosThetaI < 0.f;
+                if (flipOrientation)
+                {
+                    eta = 1.f / eta;
+                    cosThetaI = -cosThetaI;
+                    normal = -normal;
+                }
+
+                float sin2ThetaI = std::max(0.f, 1.f - cosThetaI * cosThetaI);
+                float sin2ThetaT = sin2ThetaI / (eta * eta);
+                if (sin2ThetaT >= 1.f)
+                {
+                    // Total internal reflection case
+                    Vector3 reflectionDir = Normalize(ray.directionN - normal * 2.f * Dot(normal, ray.directionN));
+                    Ray reflectionRay{ offsetOrigin,  reflectionDir };
+                    L += TraceRay(reflectionRay, depth + 1);
+                }
+                else
+                {
+                    float cosThetaT = std::sqrt(1.f - sin2ThetaT);
+                    Vector3 wt = -wi / eta + (cosThetaI / eta - cosThetaT) * normal;
+                    Vector3 offsetOriginRefraction = OffsetRayOrigin(hitInfo.point, flipOrientation ? hitInfo.normal : -hitInfo.normal);
+                    Ray refractionRay{ offsetOriginRefraction, wt };
+                    Vector3 refractionL = TraceRay(refractionRay, depth + 1);
+
+                    Vector3 reflectionDir = Normalize(ray.directionN - normal * 2.f * Dot(normal, ray.directionN));
+                    Vector3 offsetOriginReflection = OffsetRayOrigin(hitInfo.point, flipOrientation ? -hitInfo.normal : hitInfo.normal);
+                    Ray reflectionRay{ offsetOriginReflection,  reflectionDir };
+                    Vector3 reflectionL = TraceRay(reflectionRay, depth + 1);
+
+                    float fresnel = 0.5f * std::pow(1.f + Dot(ray.directionN, normal), 5);
+
+                    L += fresnel * reflectionL + (1.f - fresnel) * refractionL;
+
+                }
+            }
+        }
+        else
+        {
+            L += scene.settings.backgroundColor;
+        }
+
+        return L;
+    }
+
     RGB GetPixel(float x, float y)
     {
         Vector3 origin = scene.camera.GetPosition();
@@ -123,48 +212,10 @@ protected:
         const uint32_t maxTraceDepth = 2;
 
         Vector3 throughput{ 1.f };
-        Vector3 L{ 0.f };
-        for (uint32_t depth = 0; depth < maxTraceDepth; ++depth)
-        {
-            HitInfo hitInfo = scene.ClosestHit(ray);
-            if (hitInfo.hit)
-            {
-                const auto& mesh = scene.meshes[hitInfo.meshIndex];
-                const auto& material = scene.materials[mesh.materialIndex];
-                Vector3 normal = hitInfo.normal;
-                if (material.smoothShading)
-                {
-                    const auto& triangle = mesh.triangles[hitInfo.triangleIndex];
-                    normal = triangle.GetNormal(hitInfo.u, hitInfo.v);
-                }
-
-                for (const auto& light : scene.lights)
-                {
-                    Vector3 offsetOrigin = OffsetRayOrigin(hitInfo.point, hitInfo.normal);
-                    Vector3 dirToLight = Normalize(light.position - offsetOrigin);
-                    float distanceToLight = (light.position - offsetOrigin).Magnitude();
-                    Ray shadowRay{ offsetOrigin, dirToLight, distanceToLight};
-                    if (!scene.AnyHit(shadowRay))
-                    {
-                        float attenuation = 1.0f / (distanceToLight * distanceToLight);
-                        L += throughput * material.albedo * std::max(0.f, Dot(normal, dirToLight)) * attenuation * light.intensity;
-                        throughput *= material.albedo;
-                    }
-                }
-                if (material.type == Material::Type::DIFFUSE)
-                    break;
-                ray.origin = OffsetRayOrigin(hitInfo.point, hitInfo.normal);
-                ray.directionN = Normalize(ray.directionN - normal * 2.f * Dot(normal, ray.directionN));
-            }
-            else
-            {
-                L += throughput * scene.settings.backgroundColor;
-                break;
-            }
-        }
+        Vector3 L = TraceRay(ray);
         return L.ToRGB();
     }
-
+    static constexpr uint32_t maxDepth = 10;
     static constexpr uint32_t maxColorComponent = 255;
     Scene& scene;
 };

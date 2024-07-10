@@ -10,6 +10,7 @@
 #include <vector>
 #include <algorithm>
 #include <iostream>
+#include <map>
 
 // Helper functions
 Vector3 loadVector(const rapidjson::Value::ConstArray& arr)
@@ -71,12 +72,15 @@ struct Material
 {
 	enum Type
 	{
+		CONSTANT,
 		DIFFUSE,
-		REFLECTIVE
+		REFLECTIVE,
+		REFRACTIVE
 	};
 
 	Type type;
-	Vector3 albedo;
+	Vector3 albedo{ 1.f };
+	float ior;
 	bool smoothShading;
 };
 
@@ -134,6 +138,9 @@ public:
 	{
 		for (const auto& mesh : meshes)
 		{
+			const auto& material = materials[mesh.materialIndex];
+			if (material.type == Material::Type::REFRACTIVE)
+				continue;
 			return std::any_of(mesh.triangles.begin(), mesh.triangles.end(), [&ray](const Triangle& triangle)
 				{
 					HitInfo hitInfo = triangle.Intersect(ray);
@@ -165,11 +172,21 @@ protected:
 	inline static const std::string kTrianglesStr{ "triangles" };
 	inline static const std::string kMaterialsStr{ "materials" };
 	inline static const std::string kTypeStr{ "type" };
+	inline static const std::string kTypeConstantStr{ "constant" };
 	inline static const std::string kTypeDiffuseStr{ "diffuse" };
 	inline static const std::string kTypeReflectiveStr{ "reflective" };
+	inline static const std::string kTypeRefractiveStr{ "refractive" };
 	inline static const std::string kAlbedoStr{ "albedo" };
+	inline static const std::string kIorStr{ "ior" };
 	inline static const std::string kSmoothShadingStr{ "smooth_shading" };
 	inline static const std::string kMaterialIndexStr{ "material_index" };
+
+	const std::map<std::string, Material::Type> materialTypeMap = {
+		{ kTypeConstantStr, Material::Type::CONSTANT},
+		{ kTypeDiffuseStr, Material::Type::DIFFUSE},
+		{ kTypeReflectiveStr, Material::Type::REFLECTIVE},
+		{ kTypeRefractiveStr, Material::Type::REFRACTIVE},
+	};
 	
 	void parseSceneFile(const std::string& fileName)
 	{
@@ -206,7 +223,7 @@ protected:
 			assert(!positionVal.IsNull() && positionVal.IsArray());
 			Matrix4 translation = MakeTranslation(loadVector(positionVal.GetArray()));
 
-			camera.transform = rotation * translation;
+			camera.transform =  translation * rotation;
 		}
 
 		const Value& lightsValue = doc.FindMember(kLightsStr.c_str())->value;
@@ -236,12 +253,19 @@ protected:
 
 				const Value& typeValue = it->FindMember(kTypeStr.c_str())->value;
 				assert(!typeValue.IsNull() && typeValue.IsString());
-				const auto typeStr = typeValue.GetString();
-				material.type = std::string(typeStr) == kTypeDiffuseStr ? Material::Type::DIFFUSE : Material::Type::REFLECTIVE;
+				const auto typeStr = std::string(typeValue.GetString());
+				material.type = materialTypeMap.at(typeStr);
+				if (material.type == Material::Type::REFRACTIVE)
+				{
+					const Value& iorVal = it->FindMember(kIorStr.c_str())->value;
+					assert(!iorVal.IsNull() && iorVal.IsFloat());
+					material.ior = iorVal.GetFloat();
 
-				const Value& albedoVal = it->FindMember(kAlbedoStr.c_str())->value;
-				assert(!albedoVal.IsNull() && albedoVal.IsArray());
-				material.albedo = loadVector(albedoVal.GetArray());
+				} else {
+					const Value& albedoVal = it->FindMember(kAlbedoStr.c_str())->value;
+					assert(!albedoVal.IsNull() && albedoVal.IsArray());
+					material.albedo = loadVector(albedoVal.GetArray());
+				}
 
 				const Value& smoothShadingVal = it->FindMember(kSmoothShadingStr.c_str())->value;
 				assert(!smoothShadingVal.IsNull() && smoothShadingVal.IsBool());
